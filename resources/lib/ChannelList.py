@@ -1344,7 +1344,6 @@ class ChannelList:
 						
                         tmpstr = tmpstr[:600]
                         tmpstr = tmpstr.replace("\\n", " ").replace("\\r", " ").replace("\\\"", "\"")
-                        tmpstr = tmpstr + '\n' + match.group(1).replace("\\\\", "\\")
 						
                         showList.append(tmpstr)
                         self.log("buildLiveTVFileList Included Channel: " + str(self.settingChannel) + " Show: " + title + " Duration: " + str(dur))
