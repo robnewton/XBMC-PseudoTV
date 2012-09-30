@@ -24,9 +24,11 @@ import sys, re
 import random
 import httplib
 import base64
+import Globals
 
 
 from xml.dom.minidom import parse, parseString
+from xml.etree import ElementTree as ET
 
 from Playlist import Playlist
 from Globals import *
@@ -161,7 +163,7 @@ class ChannelList:
                 if FileAccess.exists(xbmc.translatePath(chsetting1)):
                     self.maxChannels = i + 1
                     self.enteredChannelCount += 1
-            elif chtype < 8:
+            elif chtype < 9:
                 if len(chsetting1) > 0:
                     self.maxChannels = i + 1
                     self.enteredChannelCount += 1
@@ -262,7 +264,7 @@ class ChannelList:
 
 
     def setupChannel(self, channel, background = False, makenewlist = False, append = False):
-        self.log('setupChannel ' + str(channel))
+        self.log('setupChannel ' + str(channel) + " append=" + str(append))
         returnval = False
         createlist = makenewlist
         chtype = 9999
@@ -528,6 +530,9 @@ class ChannelList:
         if chtype == 7:
             fileList = self.createDirectoryPlaylist(setting1)
             israndom = True
+        elif chtype == 8:
+            self.log("Building LiveTV Channel " + setting1 + " " + setting2 + "...")
+            fileList = self.buildLiveTVFileList(setting1, setting2, channel)
         else:
             if chtype == 0:
                 if FileAccess.copy(setting1, MADE_CHAN_LOC + os.path.split(setting1)[1]) == False:
@@ -1243,6 +1248,119 @@ class ChannelList:
 
         self.log("buildMixedFileList returning")
         return fileList
+
+
+    def parseXMLTVDate(self, dateString):
+        if dateString is not None:
+            if dateString.find(' ') != -1:
+                # remove timezone information
+                dateString = dateString[:dateString.find(' ')]
+            t = time.strptime(dateString, '%Y%m%d%H%M%S')
+            return datetime.datetime(t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec)
+        else:
+            return None
+        
+    def buildLiveTVFileList(self, setting1, setting2, channel):
+        self.log("buildLiveTVFileList")
+        self.log('buildLiveTVFileList Sample channel build for testing')
+        showList = []
+        seasoneplist = []
+        showcount = 0
+        
+        if self.background == False:
+            self.updateDialog.update(self.updateDialogProgress, "Updating channel " + str(self.settingChannel), "adding guide data", "parsing XMLTV")
+
+        self.log('buildLiveTVFileList Caching XMLTV file')
+        try:
+            self.xmlTvFile = xbmc.translatePath(os.path.join(Globals.SETTINGS_LOC, 'xmltv.xml'))
+        except:
+            self.log("buildLiveTVFileList Could not determine path the the xmltv file")
+            return
+
+        if not os.path.exists(self.xmlTvFile) or os.path.getsize(self.xmlTvFile) < 1:
+            self.log("buildLiveTVFileList XMLTV file was not found or is empty")
+            return
+            
+        size = os.path.getsize(self.xmlTvFile)
+        f = open(self.xmlTvFile, "rb")
+        context = ET.iterparse(f, events=("start", "end"))
+        
+        #filter = iterparse_filter.IterParseFilter()
+        #filter.iter_end("/tv/programme[@channel="+setting1+"]")
+        #context = filter.iterparse(f)
+        
+        #tree = ET.ElementTree(self.xmlTvFile)
+        
+        event, root = context.next()
+     
+        inSet = False
+        for event, elem in context:
+        #for elem in tree.iterfind(tree='/tv/programme[@channel="'+setting1+'"]'):
+            if self.threadPause() == False:
+                del showList[:]
+                break
+                
+            if event == "end":
+                if elem.tag == "programme":
+                    channel = elem.get("channel")
+                    title = elem.findtext('title')
+                    if setting1 == channel:
+                        inSet = True
+                        description = elem.findtext("desc")
+                        subtitle = elem.findtext("sub-title")
+                        iconElement = elem.find("icon")
+                        icon = None
+                        if iconElement is not None:
+                            icon = iconElement.get("src")
+                        if not description:
+                            if not subtitle:
+                                description = "no desc"
+                            else:
+                                description = subtitle 
+                        istvshow = True
+                        
+                        now = datetime.datetime.now()
+                        stopDate = self.parseXMLTVDate(elem.get('stop'))
+                        startDate = self.parseXMLTVDate(elem.get('start'))
+						
+                        #ignore any shows in the past
+                        if now > stopDate:
+                            self.log("Skipping " + title + "(" + description + ") because it has already ended.")
+                            continue
+                            
+                        try:
+                            dur = (stopDate - startDate).seconds
+                        except:
+                            dur = 1500  #30 minute default
+                            self.log("Failed calculating the duration from start and stop times")
+                        
+                        #prorate the current show
+                        if now > startDate:
+                            self.log("Current playing show: " + title + "(" + description + ")")
+                            self.log("Seconds already played: " + str(now) + " - " + str(startDate) + " = " + str((now - startDate).seconds))
+                            dur - (now - startDate).seconds
+						
+                        tmpstr = str(dur) + ',' + title + "////" + description + '\n' + setting2
+						
+                        tmpstr = tmpstr[:600]
+                        tmpstr = tmpstr.replace("\\n", " ").replace("\\r", " ").replace("\\\"", "\"")
+                        tmpstr = tmpstr + '\n' + match.group(1).replace("\\\\", "\\")
+						
+                        showList.append(tmpstr)
+                        self.log("buildLiveTVFileList Included Channel: " + str(self.settingChannel) + " Show: " + title + " Duration: " + str(dur))
+                    else:
+                        if inSet == True:
+                            self.log("buildLiveTVFileList Done parsing channel xml")
+                            break
+                    showcount += 1
+                    
+            root.clear()
+                
+        if showcount == 0:
+            self.log("buildLiveTVFileList No shows found to add")
+
+        self.log("buildLiveTVFileList return")
+        return showList
 
 
     # Run rules for a channel
