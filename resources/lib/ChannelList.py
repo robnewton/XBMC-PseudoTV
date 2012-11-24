@@ -249,7 +249,7 @@ class ChannelList:
                 response = conn.getresponse()
 
                 if response.status == 200:
-                    data = response.read()
+                    data = uni(response.read())
                     usedhttp = True
 
                 conn.close()
@@ -260,11 +260,11 @@ class ChannelList:
             self.httpJSON = False
             data = xbmc.executeJSONRPC(command)
 
-        return data
+        return uni(data)
 
 
     def setupChannel(self, channel, background = False, makenewlist = False, append = False):
-        self.log('setupChannel ' + str(channel) + " append=" + str(append))
+        self.log('setupChannel ' + str(channel))
         returnval = False
         createlist = makenewlist
         chtype = 9999
@@ -288,13 +288,21 @@ class ChannelList:
             self.channels[channel - 1].isValid = False
             return False
 
+        self.channels[channel - 1].type = chtype
         self.channels[channel - 1].isSetup = True
         self.channels[channel - 1].loadRules(channel)
         self.runActions(RULES_ACTION_START, channel, self.channels[channel - 1])
-        GlobalFileLock.lockFile(CHANNELS_LOC + 'channel_' + str(channel) + '.m3u', True)
 
         try:
             needsreset = ADDON_SETTINGS.getSetting('Channel_' + str(channel) + '_changed') == 'True'
+            
+            #force rebuild of livetv channels every load
+            if chtype == 8:
+                needsreset = True
+                makenewlist = True
+                
+            if needsreset:
+                self.channels[channel - 1].isSetup = False
         except:
             pass
 
@@ -383,6 +391,7 @@ class ChannelList:
 
                         if needsreset:
                             ADDON_SETTINGS.setSetting('Channel_' + str(channel) + '_changed', 'False')
+                            self.channels[channel - 1].isSetup = True
 
         self.runActions(RULES_ACTION_BEFORE_CLEAR, channel, self.channels[channel - 1])
 
@@ -391,8 +400,6 @@ class ChannelList:
             self.updateDialogProgress = (channel - 1) * 100 // self.enteredChannelCount
             self.updateDialog.update(self.updateDialogProgress, "Loading channel " + str(channel), "clearing history", '')
             self.clearPlaylistHistory(channel)
-
-        GlobalFileLock.unlockFile(CHANNELS_LOC + 'channel_' + str(channel) + '.m3u')
 
         if append == False:
             self.runActions(RULES_ACTION_BEFORE_TIME, channel, self.channels[channel - 1])
@@ -440,7 +447,7 @@ class ChannelList:
                 self.log("clearPlaylistHistory Unable to open the smart playlist", xbmc.LOGERROR)
                 return
 
-            flewrite = "#EXTM3U\n"
+            flewrite = uni("#EXTM3U\n")
             tottime = 0
             timeremoved = 0
 
@@ -450,10 +457,10 @@ class ChannelList:
                 if tottime > (self.channels[channel - 1].totalTimePlayed - (60 * 60 * 12)):
                     tmpstr = str(self.channels[channel - 1].getItemDuration(i)) + ','
                     tmpstr += self.channels[channel - 1].getItemTitle(i) + "//" + self.channels[channel - 1].getItemEpisodeTitle(i) + "//" + self.channels[channel - 1].getItemDescription(i)
-                    tmpstr = tmpstr[:600]
+                    tmpstr = uni(tmpstr[:600])
                     tmpstr = tmpstr.replace("\\n", " ").replace("\\r", " ").replace("\\\"", "\"")
-                    tmpstr = tmpstr + '\n' + self.channels[channel - 1].getItemFilename(i)
-                    flewrite += "#EXTINF:" + tmpstr + "\n"
+                    tmpstr = uni(tmpstr) + uni('\n') + uni(self.channels[channel - 1].getItemFilename(i))
+                    flewrite += uni("#EXTINF:") + uni(tmpstr) + uni("\n")
                 else:
                     timeremoved = tottime
 
@@ -589,7 +596,7 @@ class ChannelList:
             return False
 
         if append == False:
-            channelplaylist.write("#EXTM3U\n")
+            channelplaylist.write(uni("#EXTM3U\n"))
 
         if len(fileList) == 0:
             self.log("Unable to get information about channel " + str(channel), xbmc.LOGERROR)
@@ -614,7 +621,7 @@ class ChannelList:
 
         # Write each entry into the new playlist
         for string in fileList:
-            channelplaylist.write("#EXTINF:" + string + "\n")
+            channelplaylist.write(uni("#EXTINF:") + uni(string) + uni("\n"))
 
         channelplaylist.close()
         self.log('makeChannelList return')
@@ -817,13 +824,13 @@ class ChannelList:
                             else:
                                 self.updateDialog.update(self.updateDialogProgress, "Updating channel " + str(self.settingChannel), "adding videos", "added " + str(filecount) + " entries")
 
-                        afile = os.path.split(match.group(1).replace("\\\\", "\\"))[1]
+                        afile = uni(os.path.split(match.group(1).replace("\\\\", "\\"))[1])
                         afile, ext = os.path.splitext(afile)
-                        tmpstr = str(duration) + ','
-                        tmpstr += afile + "//" + thedir + "//"
-                        tmpstr = tmpstr[:600]
-                        tmpstr = tmpstr.replace("\\n", " ").replace("\\r", " ").replace("\\\"", "\"")
-                        tmpstr += "\n" + match.group(1).replace("\\\\", "\\")
+                        tmpstr = uni(str(duration) + ',')
+                        tmpstr += uni(afile) + uni("//") + uni(thedir) + uni("//")
+                        tmpstr = uni(tmpstr[:600])
+                        tmpstr = uni(tmpstr.replace("\\n", " ").replace("\\r", " ").replace("\\\"", "\""))
+                        tmpstr += uni("\n") + uni(match.group(1).replace("\\\\", "\\"))
                         fileList.append(tmpstr)
 
         if filecount == 0:
@@ -849,11 +856,11 @@ class ChannelList:
 
 
     def cleanString(self, string):
-        newstr = string
+        newstr = uni(string)
         newstr = newstr.replace('&', '&amp;')
         newstr = newstr.replace('>', '&gt;')
         newstr = newstr.replace('<', '&lt;')
-        return newstr
+        return uni(newstr)
 
 
     def fillTVInfo(self, sortbycount = False):
@@ -1173,7 +1180,7 @@ class ChannelList:
                                 try:
                                     seasonval = int(season.group(1))
                                     epval = int(episode.group(1))
-                                    
+
                                     if self.showSeasonEpisode:
                                         swtitle = swtitle + '(S' + ('0' if seasonval < 10 else '') + str(seasonval) + ' E' + ('0' if epval < 10 else '') + str(epval) + ')'
                                 except:
@@ -1261,8 +1268,6 @@ class ChannelList:
             return None
         
     def buildLiveTVFileList(self, setting1, setting2, channel):
-        self.log("buildLiveTVFileList")
-        self.log('buildLiveTVFileList Sample channel build for testing')
         showList = []
         seasoneplist = []
         showcount = 0
@@ -1270,7 +1275,6 @@ class ChannelList:
         if self.background == False:
             self.updateDialog.update(self.updateDialogProgress, "Updating channel " + str(self.settingChannel), "adding guide data", "parsing XMLTV")
 
-        self.log('buildLiveTVFileList Caching XMLTV file')
         try:
             self.xmlTvFile = xbmc.translatePath(os.path.join(Globals.SETTINGS_LOC, 'xmltv.xml'))
         except:
@@ -1323,42 +1327,49 @@ class ChannelList:
                         stopDate = self.parseXMLTVDate(elem.get('stop'))
                         startDate = self.parseXMLTVDate(elem.get('start'))
 						
-                        #ignore any shows in the past
+                        #skip old shows that have already ended
                         if now > stopDate:
-                            self.log("Skipping " + title + "(" + description + ") because it has already ended.")
+                            self.log("buildLiveTVFileList  CHANNEL: " + str(self.settingChannel) + "  OLD: " + title)
                             continue
-                            
-                        try:
-                            dur = (stopDate - startDate).seconds
-                        except:
-                            dur = 1500  #30 minute default
-                            self.log("Failed calculating the duration from start and stop times")
                         
-                        #prorate the current show
-                        if now > startDate:
-                            self.log("Current playing show: " + title + "(" + description + ")")
-                            self.log("Seconds already played: " + str(now) + " - " + str(startDate) + " = " + str((now - startDate).seconds))
-                            dur - (now - startDate).seconds
+                        #adjust the duration of the current show
+                        if now > startDate and now <= stopDate:
+                            try:
+                                #dur = ((stopDate - startDate).seconds) - ((now - startDate).seconds)
+                                dur = (stopDate - startDate).seconds
+                                self.log("buildLiveTVFileList  CHANNEL: " + str(self.settingChannel) + "  NOW PLAYING: " + title + "  DUR: " + str(dur))
+                            except:
+                                dur = 1500  #30 minute default
+                                self.log("buildLiveTVFileList  CHANNEL: " + str(self.settingChannel) + " - Error calculating show duration (defaulted to 30 min)")
+                                raise
+                        
+                        #use the full duration for an upcoming show
+                        if now < startDate:
+                            try:
+                                dur = (stopDate - startDate).seconds
+                                self.log("buildLiveTVFileList  CHANNEL: " + str(self.settingChannel) + "  UPCOMING: " + title + "  DUR: " + str(dur))
+                            except:
+                                dur = 1500  #30 minute default
+                                self.log("buildLiveTVFileList  CHANNEL: " + str(self.settingChannel) + " - Error calculating show duration (defaulted to 30 min)")
+                                raise
 						
-                        tmpstr = str(dur) + ',' + title + "////" + description + '\n' + setting2
+                        tmpstr = str(dur) + ',' + title + "//" + "01x01" + "//" + description + '\n' + setting2
 						
                         tmpstr = tmpstr[:600]
                         tmpstr = tmpstr.replace("\\n", " ").replace("\\r", " ").replace("\\\"", "\"")
 						
                         showList.append(tmpstr)
-                        self.log("buildLiveTVFileList Included Channel: " + str(self.settingChannel) + " Show: " + title + " Duration: " + str(dur))
                     else:
                         if inSet == True:
-                            self.log("buildLiveTVFileList Done parsing channel xml")
+                            self.log("buildLiveTVFileList  CHANNEL: " + str(self.settingChannel) + "  DONE")
                             break
                     showcount += 1
                     
             root.clear()
                 
         if showcount == 0:
-            self.log("buildLiveTVFileList No shows found to add")
+            self.log("buildLiveTVFileList  CHANNEL: " + str(self.settingChannel) + " 0 SHOWS FOUND")
 
-        self.log("buildLiveTVFileList return")
         return showList
 
 
